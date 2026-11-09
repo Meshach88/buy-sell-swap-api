@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -29,28 +30,33 @@ class AuthController extends Controller
         $data = $request->validated();
         $cityId = $data['city_id'] ?? $this->defaultCityId();
 
-        $user = User::create([
-            'name' => $data['name'],
-            'phone' => $data['phone'],
-            'password' => $data['password'],
-            'area' => $data['area'] ?? null,
-            'city_id' => $cityId,
-            'status' => UserStatus::Pending->value,
-        ]);
-
-        $user->assignRole(Role::Customer->value);
-
-        if ($data['role'] === 'seller') {
-            $user->assignRole(Role::Seller->value);
-
-            SellerProfile::create([
-                'user_id' => $user->id,
-                'city_id' => $cityId,
-                'shop_name' => $data['shop_name'],
-                'slug' => $this->uniqueSellerSlug($data['shop_name']),
+        // All or nothing, so a failure can't leave a half-made account holding the phone number.
+        $user = DB::transaction(function () use ($data, $cityId) {
+            $user = User::create([
+                'name' => $data['name'],
+                'phone' => $data['phone'],
+                'password' => $data['password'],
                 'area' => $data['area'] ?? null,
+                'city_id' => $cityId,
+                'status' => UserStatus::Pending->value,
             ]);
-        }
+
+            $user->assignRole(Role::Customer->value);
+
+            if ($data['role'] === 'seller') {
+                $user->assignRole(Role::Seller->value);
+
+                SellerProfile::create([
+                    'user_id' => $user->id,
+                    'city_id' => $cityId,
+                    'shop_name' => $data['shop_name'],
+                    'slug' => $this->uniqueSellerSlug($data['shop_name']),
+                    'area' => $data['area'] ?? null,
+                ]);
+            }
+
+            return $user;
+        });
 
         return $this->issueOtp($user, 'register', 201, [
             'message' => 'Account created. Enter the code we sent to verify your number.',

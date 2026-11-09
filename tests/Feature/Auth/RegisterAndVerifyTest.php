@@ -6,6 +6,8 @@ use App\Models\OtpCode;
 use App\Models\User;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class RegisterAndVerifyTest extends TestCase
@@ -54,6 +56,22 @@ class RegisterAndVerifyTest extends TestCase
         $this->assertTrue($user->hasRole('customer'));
         $this->assertSame('Musa Gadgets', $user->sellerProfile->shop_name);
         $this->assertNotEmpty($user->sellerProfile->slug);
+    }
+
+    public function test_a_failed_registration_leaves_no_user_behind(): void
+    {
+        Role::findByName('seller', 'web')->delete();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'Musa Ibrahim',
+            'phone' => '08033334444',
+            'password' => 'password123',
+            'role' => 'seller',
+            'shop_name' => 'Musa Gadgets',
+        ])->assertServerError();
+
+        $this->assertDatabaseMissing('users', ['phone' => '08033334444']);
     }
 
     public function test_seller_role_requires_a_shop_name(): void
